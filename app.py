@@ -1,17 +1,17 @@
-import streamlit as str
+import streamlit as st
 import pandas as pd
 import math
 
 # Set page layout to wide for better screen usage on clinic devices
-str.set_page_config(page_title="🐾 Clinic Drug Dose Calculator", layout="wide")
+st.set_page_config(page_title="🐾 Clinic Drug Dose Calculator", layout="wide")
 
-str.title("🐾 Multi-Drug Clinic Calculator")
-str.write("Enter the patient's details below to calculate safe and accurate medication dosages.")
+st.title("🐾 Multi-Drug Clinic Calculator")
+st.write("Enter the patient's details below to calculate safe and accurate medication dosages.")
 
 # --- GOOGLE SHEET CONNECTION ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/19J5i22M-gV-6yZeK-Qz5pSsR9O7pAfqgycOi6papMhk/export?format=csv"
 
-@str.cache_data(ttl=60) # Automatically pulls any Google Sheet edits every 60 seconds
+@st.cache_data(ttl=60) # Automatically pulls any Google Sheet edits every 60 seconds
 def load_data():
     try:
         df = pd.read_csv(SHEET_URL)
@@ -19,20 +19,20 @@ def load_data():
         df.columns = df.columns.str.strip()
         return df
     except Exception as e:
-        str.error(f"Error loading your Google Sheet formulary: {e}")
+        st.error(f"Error loading your Google Sheet formulary: {e}")
         return pd.DataFrame()
 
 df = load_data()
 
 if not df.empty:
     # --- USER INPUT AREA ---
-    col1, col2 = str.columns(2)
+    col1, col2 = st.columns(2)
     
     with col1:
-        weight = str.number_input("Patient Weight (kg):", min_value=0.1, value=10.0, step=0.1)
+        weight = st.number_input("Patient Weight (kg):", min_value=0.1, value=10.0, step=0.1)
     
     with col2:
-        species_choice = str.selectbox("Patient Species:", ["Canine", "Feline"])
+        species_choice = st.selectbox("Patient Species:", ["Canine", "Feline"])
 
     # Filter rules matching the specific species profile
     filtered_df = df[df['Species'].str.lower().str.strip().isin([species_choice.lower(), 'all'])]
@@ -43,18 +43,18 @@ if not df.empty:
     
     formulary = filtered_df.set_index("Drug Name").to_dict(orient="index")
     
-    str.markdown("---")
-    str.subheader("💊 Select Medications")
+    st.markdown("---")
+    st.subheader("💊 Select Medications")
 
     # Dropdown menu containing every drug associated with your species selection
-    selected_drugs = str.multiselect("Choose medications to calculate:", list(formulary.keys()))
+    selected_drugs = st.multiselect("Choose medications to calculate:", list(formulary.keys()))
 
     if selected_drugs:
-        str.markdown("### 📋 Generated Prescription Details")
+        st.markdown("### 📋 Generated Prescription Details")
         
         for drug_name in selected_drugs:
             drug = formulary[drug_name]
-            unit_type = str(drug["Unit"]).lower().strip()
+            unit_type = bytes(str(drug["Unit"]), 'utf-8').decode('utf-8').lower().strip() if pd.notna(drug["Unit"]) else ""
             
             # --- SMART VETERINARY CALCULATION PIPELINE ---
             # Bypass patient weight multipliers entirely if the record uses fixed unit rules
@@ -100,9 +100,9 @@ if not df.empty:
                 final_volume_string = f"{min_dispense} - {max_dispense}"
 
             # Clean output structure matching formal clinic labels
-            str.markdown(
+            st.markdown(
                 f"**{drug['Type']}**: {drug_name} ({chosen_dose_display}) &nbsp;&nbsp;➔&nbsp;&nbsp; "
                 f"`{final_volume_string}` &nbsp;&nbsp;|&nbsp;&nbsp; {drug['Route']} &nbsp;&nbsp;|&nbsp;&nbsp; {drug['Freq']}"
             )
 else:
-    str.warning("Please verify your Google Sheet CSV export parameters. No records could be read successfully.")
+    st.warning("Please verify your Google Sheet CSV export parameters. No records could be read successfully.")
