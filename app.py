@@ -27,7 +27,7 @@ def load_data(url):
 
 st.title("🐾 Clinic Multi-Drug Calculator")
 
-# NEW: Initialize the app's persistent memory bucket if it doesn't exist yet
+# Initialize the app's persistent memory bucket if it doesn't exist yet
 if "rx_basket" not in st.session_state:
     st.session_state["rx_basket"] = []
 
@@ -57,6 +57,9 @@ filtered_df = df_formulary[
     (df_formulary["Species"].str.strip().str.lower() == "all")
 ]
 
+# Ensure unique drug names before creating the dictionary index
+filtered_df['Drug Name'] = filtered_df['Drug Name'].str.strip()
+filtered_df = filtered_df.drop_duplicates(subset=['Drug Name'])
 formulary = filtered_df.set_index("Drug Name").to_dict(orient="index")
 
 if not formulary:
@@ -66,38 +69,54 @@ if not formulary:
 selected_drug_name = st.selectbox("Select Drug", list(formulary.keys()))
 drug = formulary[selected_drug_name]
 
+# Normalize unit string for checking
+unit_type = str(drug["Unit"]).strip().lower() if pd.notna(drug["Unit"]) else ""
+
 if float(drug["Max Dose"]) != float(drug["Min Dose"]):
     chosen_dose = st.slider(
-        f"Select Dosage (mg/kg)", 
+        f"Select Dosage", 
         float(drug["Min Dose"]), 
         float(drug["Max Dose"]), 
         float((drug["Min Dose"] + drug["Max Dose"]) / 2)
     )
 else:
     chosen_dose = float(drug["Min Dose"])
-    st.info(f"Fixed dosage for this medication: {chosen_dose} mg/kg")
+    if unit_type in ["vial", "bracket", "tablet per dog", "fixed"]:
+        st.info(f"Fixed dosage for this medication: {chosen_dose} {unit_type}")
+    else:
+        st.info(f"Fixed dosage for this medication: {chosen_dose} mg/kg")
 
 # 4. THE CALCULATION & VETERINARY ROUNDING LOGIC
-mg_per_dose = weight * chosen_dose
-quantity_needed = mg_per_dose / float(drug["Concentration Value"])
+if unit_type in ["vial", "bracket", "tablet per dog", "fixed"]:
+    # Bypass patient weight completely for flat-dose/bracket medications
+    quantity_needed = chosen_dose
+    chosen_dose_str = "Fixed Dose"
+else:
+    # Standard math for normal mg/kg dynamic medications
+    mg_per_dose = weight * chosen_dose
+    quantity_needed = mg_per_dose / float(drug["Concentration Value"])
+    chosen_dose_str = f"{int(chosen_dose)}mg/kg" if chosen_dose.is_integer() else f"{chosen_dose}mg/kg"
 
-if str(drug["Unit"]).strip().lower() == "tablet":
+# Apply precise rounding configurations based on unit definitions
+if unit_type == "tablet":
     display_qty = math.floor(quantity_needed * 4) / 4 
     if display_qty == 0.0:
         display_qty = 0.25
     unit_string = "tablets" if display_qty > 1 else "tablet"
+elif unit_type in ["vial", "bracket"]:
+    display_qty = round(quantity_needed, 1) if not quantity_needed.is_integer() else int(quantity_needed)
+    unit_string = "vials" if display_qty > 1 else "vial"
 else:
     display_qty = round(quantity_needed, 2) 
     unit_string = str(drug["Unit"]).strip()
 
 duration_string = "1day" if days == 1 else f"{days}days"
-chosen_dose_str = str(int(chosen_dose)) if chosen_dose.is_integer() else str(chosen_dose)
 base_drug_name = selected_drug_name.split(' (')[0]
 
 # Construct the current single prescription line
 current_rx_line = (
     f"{drug['Type']}: {base_drug_name} {drug['Concentration Display']} "
-    f"({chosen_dose_str}mg/kg)          "
+    f"({chosen_dose_str})          "
     f"{display_qty} {unit_string}  {drug['Route']} {drug['Freq']} {duration_string}"
 )
 
@@ -106,13 +125,11 @@ st.markdown("---")
 btn_col1, btn_col2 = st.columns([1, 4])
 
 with btn_col1:
-    # Clicking this appends the current prescription text to our memory list
     if st.button("➕ Add to List", type="primary"):
         st.session_state["rx_basket"].append(current_rx_line)
         st.toast(f"Added {base_drug_name}!", icon="✅")
 
 with btn_col2:
-    # Clicking this empties out our memory list
     if st.button("🗑️ Clear Entire List"):
         st.session_state["rx_basket"] = []
         st.rerun()
@@ -121,7 +138,6 @@ with btn_col2:
 st.subheader("📋 Complete Patient Prescription Output:")
 
 if st.session_state["rx_basket"]:
-    # Join all stored prescription strings with a new line break
     combined_output = "\n".join(st.session_state["rx_basket"])
     st.code(combined_output, language="text")
     st.info("💡 Pro-Tip: Click the copy icon in the top right corner of the box above to grab all lines at once!")
