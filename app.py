@@ -1,129 +1,107 @@
-import streamlit as st
+import streamlit as str
 import pandas as pd
-import re
-import math
 
-# 1. LINK TO YOUR GOOGLE SHEET
-SHARE_LINK = "https://docs.google.com/spreadsheets/d/19J5i22M-gV-6yZeK-Qz5pSsR9O7pAfqgycOi6papMhk/edit?usp=sharing"
+# Set page layout to wide for better screen usage in the clinic
+str.set_page_config(page_title="🐾 Clinic Drug Dose Calculator", layout="wide")
 
-def get_csv_url(url):
+str.title("🐾 Multi-Drug Clinic Calculator")
+str.write("Enter the patient's details below to calculate safe and accurate medication dosages.")
+
+# --- GOOGLE SHEET CONNECTION ---
+# Replace this URL string with your actual Google Sheet CSV export link if necessary
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1Xg6X_u9-R2f2w_YshI4SgYkG4vHw1N-eC4n00F7I4U4/export?format=csv"
+
+@str.cache_data(ttl=60) # Refreshes cache every 60 seconds to pull sheet updates
+def load_data():
     try:
-        match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
-        if match:
-            spreadsheet_id = match.group(1)
-            return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv"
-        return None
+        df = pd.read_csv(SHEET_URL)
+        # Standardize column naming rules to prevent data extraction spaces/issues
+        df.columns = df.columns.str.strip()
+        return df
     except Exception as e:
-        return None
+        str.error(f"Error loading your Google Sheet formulary: {e}")
+        return pd.DataFrame()
 
-csv_url = get_csv_url(SHARE_LINK)
+df = load_data()
 
-# 2. LOAD THE DATA
-@st.cache_data(ttl=5)
-def load_data(url):
-    df = pd.read_csv(url)
-    df.columns = df.columns.str.strip()
-    return df
+if not df.empty:
+    # --- USER INPUT AREA ---
+    col1, col2 = str.columns(2)
+    
+    with col1:
+        weight = str.number_input("Patient Weight (kg):", min_value=0.1, value=10.0, step=0.1)
+    
+    with col2:
+        species_choice = str.selectbox("Patient Species:", ["Canine", "Feline"])
 
-st.title("🐾 Clinic Multi-Drug Calculator")
+    # Filter out rules matching the specific species profile
+    filtered_df = df[df['Species'].str.lower().isin([species_choice.lower(), 'all'])]
+    
+    # Force unique naming structures to guarantee index uniqueness and prevent data leak errors
+    filtered_df = filtered_df.drop_duplicates(subset=['Drug Name'])
+    formulary = filtered_df.set_index("Drug Name").to_dict(orient="index")
+    
+    str.markdown("---")
+    str.subheader("💊 Select Medications")
 
-# NEW: Initialize the app's persistent memory bucket if it doesn't exist yet
-if "rx_basket" not in st.session_state:
-    st.session_state["rx_basket"] = []
+    # Multi-select list displaying every available medication configuration matching the species filter
+    selected_drugs = str.multiselect("Choose medications to calculate:", list(formulary.keys()))
 
-try:
-    df_formulary = load_data(csv_url)
-    if "Drug Name" not in df_formulary.columns or "Species" not in df_formulary.columns:
-        st.error(f"❌ Header Error: Please ensure you have both 'Drug Name' and 'Species' columns.")
-        st.stop()
-except Exception as error:
-    st.error("❌ Connection Failed. Technical details below:")
-    st.exception(error)
-    st.stop()
+    if selected_drugs:
+        str.markdown("### 📋 Generated Prescription Details")
+        
+        for drug_name in selected_drugs:
+            drug = formulary[drug_name]
+            
+            # --- SMART VETERINARY CALCULATION PIPELINE ---
+            # Bypass weight multipliers entirely if the record uses fixed unit rules
+            if str(drug["Unit"]).lower().strip() in ["vial", "bracket", "tablet per dog", "fixed"]:
+                min_quantity = float(drug["Min Dose"])
+                max_quantity = float(drug["Max Dose"])
+                chosen_dose_display = f"Fixed Dose"
+            else:
+                # Dynamic weight multiplication logic for standard drugs
+                mg_min = weight * float(drug["Min Dose"])
+                mg_max = weight * float(drug["Max Dose"])
+                
+                concentration = float(drug["Concentration Value"])
+                min_quantity = mg_min / concentration
+                max_quantity = mg_max / concentration
+                
+                # Format dosage window text cleanly for display purposes
+                if float(drug["Min Dose"]) == float(drug["Max Dose"]):
+                    chosen_dose_display = f"{drug['Min Dose']} mg/kg"
+                else:
+                    chosen_dose_display = f"{drug['Min Dose']}-{drug['Max Dose']} mg/kg"
 
-# 3. STREAMLIT USER INTERFACE
-st.write("Input patient details below to build your multi-drug prescription list.")
+            # --- SMART CLINICAL ROUNDING RULES ---
+            unit_type = str(drug["Unit"]).lower().strip()
+            
+            if unit_type == "tablet":
+                # Safely round down to the nearest quarter tablet to simplify dosing instructions
+                def round_quarter(val):
+                    return math.floor(val * 4) / 4 if val >= 0.25 else 0.25
+                min_dispense = f"{round_quarter(min_quantity)} tab"
+                max_dispense = f"{round_quarter(max_quantity)} tab"
+            elif unit_type in ["vial", "bracket"]:
+                # Keep fixed doses perfectly intact
+                min_dispense = f"{min_quantity} vial" if min_quantity == max_quantity else f"{min_quantity}-{max_quantity} vial"
+                max_dispense = "" 
+            else:
+                # Keep liquid medication quantities perfectly exact to 2 decimal places (e.g., 0.42 ml)
+                min_dispense = f"{min_quantity:.2f} {drug['Unit']}"
+                max_dispense = f"{max_quantity:.2f} {drug['Unit']}"
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    species = st.selectbox("Species", ["Canine", "Feline", "Other"])
-with col2:
-    weight = st.number_input("Weight (kg)", min_value=0.1, value=10.0, step=0.1)
-with col3:
-    days = st.number_input("Duration (Days)", min_value=1, value=14, step=1)
+            # --- PRINT READY PRESCRIPTION LOGIC OUTPUT ---
+            if min_dispense == max_dispense or max_dispense == "":
+                final_volume_string = min_dispense
+            else:
+                final_volume_string = f"{min_dispense} - {max_dispense}"
 
-filtered_df = df_formulary[
-    (df_formulary["Species"].str.strip().str.lower() == species.lower()) | 
-    (df_formulary["Species"].str.strip().str.lower() == "all")
-]
-
-formulary = filtered_df.set_index("Drug Name").to_dict(orient="index")
-
-if not formulary:
-    st.warning(f"⚠️ No medications found in your spreadsheet for {species} yet.")
-    st.stop()
-
-selected_drug_name = st.selectbox("Select Drug", list(formulary.keys()))
-drug = formulary[selected_drug_name]
-
-if float(drug["Max Dose"]) != float(drug["Min Dose"]):
-    chosen_dose = st.slider(
-        f"Select Dosage (mg/kg)", 
-        float(drug["Min Dose"]), 
-        float(drug["Max Dose"]), 
-        float((drug["Min Dose"] + drug["Max Dose"]) / 2)
-    )
+            # Clean output structure matching formal clinic labels
+            str.markdown(
+                f"**{drug['Type']}**: {drug_name} ({chosen_dose_display}) &nbsp;&nbsp;➔&nbsp;&nbsp; "
+                f"`{final_volume_string}` &nbsp;&nbsp;|&nbsp;&nbsp; {drug['Route']} &nbsp;&nbsp;|&nbsp;&nbsp; {drug['Freq']}"
+            )
 else:
-    chosen_dose = float(drug["Min Dose"])
-    st.info(f"Fixed dosage for this medication: {chosen_dose} mg/kg")
-
-# 4. THE CALCULATION & VETERINARY ROUNDING LOGIC
-mg_per_dose = weight * chosen_dose
-quantity_needed = mg_per_dose / float(drug["Concentration Value"])
-
-if str(drug["Unit"]).strip().lower() == "tablet":
-    display_qty = math.floor(quantity_needed * 4) / 4 
-    if display_qty == 0.0:
-        display_qty = 0.25
-    unit_string = "tablets" if display_qty > 1 else "tablet"
-else:
-    display_qty = round(quantity_needed, 2) 
-    unit_string = str(drug["Unit"]).strip()
-
-duration_string = "1day" if days == 1 else f"{days}days"
-chosen_dose_str = str(int(chosen_dose)) if chosen_dose.is_integer() else str(chosen_dose)
-base_drug_name = selected_drug_name.split(' (')[0]
-
-# Construct the current single prescription line
-current_rx_line = (
-    f"{drug['Type']}: {base_drug_name} {drug['Concentration Display']} "
-    f"({chosen_dose_str}mg/kg)          "
-    f"{display_qty} {unit_string}  {drug['Route']} {drug['Freq']} {duration_string}"
-)
-
-# 5. CONTROL BUTTONS (Add to Basket / Clear Basket)
-st.markdown("---")
-btn_col1, btn_col2 = st.columns([1, 4])
-
-with btn_col1:
-    # Clicking this appends the current prescription text to our memory list
-    if st.button("➕ Add to List", type="primary"):
-        st.session_state["rx_basket"].append(current_rx_line)
-        st.toast(f"Added {base_drug_name}!", icon="✅")
-
-with btn_col2:
-    # Clicking this empties out our memory list
-    if st.button("🗑️ Clear Entire List"):
-        st.session_state["rx_basket"] = []
-        st.rerun()
-
-# 6. GENERATING THE CUMULATIVE OUTPUT BOX
-st.subheader("📋 Complete Patient Prescription Output:")
-
-if st.session_state["rx_basket"]:
-    # Join all stored prescription strings with a new line break
-    combined_output = "\n".join(st.session_state["rx_basket"])
-    st.code(combined_output, language="text")
-    st.info("💡 Pro-Tip: Click the copy icon in the top right corner of the box above to grab all lines at once!")
-else:
-    st.code("No medications added yet. Choose a drug above and click 'Add to List'.", language="text")
+    str.warning("Please verify your Google Sheet CSV export parameters. No records could be read successfully.")
