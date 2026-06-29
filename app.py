@@ -103,20 +103,21 @@ if unit_type == "tablet":
     if display_qty == 0.0:
         display_qty = 0.25
     unit_string = "tablets" if display_qty > 1 else "tablet"
-elif unit_type in ["vial", "bracket"]:
+elif unit_type in ["vial", "bracket", "tablet per dog", "fixed"]:
     display_qty = round(quantity_needed, 1) if not quantity_needed.is_integer() else int(quantity_needed)
-    unit_string = "vials" if display_qty > 1 else "vial"
+    unit_string = "vials" if "vial" in unit_type else "tablet per dog"
 else:
     display_qty = round(quantity_needed, 2) 
     unit_string = str(drug["Unit"]).strip()
 
 duration_string = "1day" if days == 1 else f"{days}days"
+
+# SMART TEXT FIX: Strip parenthetical details out of the base name so it looks like "Sulcrafate" instead of "Sulcrafate (Small Dog)"
 base_drug_name = selected_drug_name.split(' (')[0]
 
 # Construct the current single prescription line
 current_rx_line = (
-    f"{drug['Type']}: {base_drug_name} {drug['Concentration Display']} "
-    f"({chosen_dose_str})          "
+    f"{drug['Type']}: {base_drug_name} {drug['Concentration Display']} ({chosen_dose_str})        "
     f"{display_qty} {unit_string}  {drug['Route']} {drug['Freq']} {duration_string}"
 )
 
@@ -138,8 +139,14 @@ with btn_col2:
 st.subheader("📋 Complete Patient Prescription Output:")
 
 if st.session_state["rx_basket"]:
+    # The \n handles linebreaks perfectly inside code blocks
     combined_output = "\n".join(st.session_state["rx_basket"])
     st.code(combined_output, language="text")
     st.info("💡 Pro-Tip: Click the copy icon in the top right corner of the box above to grab all lines at once!")
+    
+    # Also render them cleanly on the web app below the box
+    st.markdown("### Preview:")
+    for line in st.session_state["rx_basket"]:
+        st.write(line)
 else:
     st.code("No medications added yet. Choose a drug above and click 'Add to List'.", language="text")
