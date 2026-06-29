@@ -72,6 +72,15 @@ drug = formulary[selected_drug_name]
 # Normalize unit string for checking
 unit_type = str(drug["Unit"]).strip().lower() if pd.notna(drug["Unit"]) else ""
 
+# Set up the list of units that skip the weight math multiplier
+FIXED_DOSE_UNITS = [
+    "vial", "bracket", "fixed",
+    "tablet per dog", "tablet per cat", "tablet per animal",
+    "ml per dog", "ml per cat", "ml per animal"
+]
+
+is_fixed_dose = any(x in unit_type for x in FIXED_DOSE_UNITS)
+
 if float(drug["Max Dose"]) != float(drug["Min Dose"]):
     chosen_dose = st.slider(
         f"Select Dosage", 
@@ -81,13 +90,13 @@ if float(drug["Max Dose"]) != float(drug["Min Dose"]):
     )
 else:
     chosen_dose = float(drug["Min Dose"])
-    if unit_type in ["vial", "bracket", "tablet per dog", "fixed"]:
-        st.info(f"Fixed dosage for this medication: {chosen_dose} {unit_type}")
+    if is_fixed_dose:
+        st.info(f"Fixed dosage for this medication: {chosen_dose} {str(drug['Unit']).strip()}")
     else:
         st.info(f"Fixed dosage for this medication: {chosen_dose} mg/kg")
 
 # 4. THE CALCULATION & VETERINARY ROUNDING LOGIC
-if unit_type in ["vial", "bracket", "tablet per dog", "fixed"]:
+if is_fixed_dose:
     # Bypass patient weight completely for flat-dose/bracket medications
     quantity_needed = chosen_dose
     chosen_dose_str = "Fixed Dose"
@@ -103,16 +112,16 @@ if unit_type == "tablet":
     if display_qty == 0.0:
         display_qty = 0.25
     unit_string = "tablets" if display_qty > 1 else "tablet"
-elif unit_type in ["vial", "bracket", "tablet per dog", "fixed"]:
-    display_qty = round(quantity_needed, 1) if not quantity_needed.is_integer() else int(quantity_needed)
-    unit_string = "vials" if "vial" in unit_type else "tablet per dog"
+elif is_fixed_dose:
+    display_qty = round(quantity_needed, 2) if not quantity_needed.is_integer() else int(quantity_needed)
+    unit_string = str(drug["Unit"]).strip()
 else:
     display_qty = round(quantity_needed, 2) 
     unit_string = str(drug["Unit"]).strip()
 
 duration_string = "1day" if days == 1 else f"{days}days"
 
-# SMART TEXT FIX: Strip parenthetical details out of the base name so it looks like "Sulcrafate" instead of "Sulcrafate (Small Dog)"
+# Strip parenthetical details out of the base name so it looks like "Sulcrafate" instead of "Sulcrafate (Small Dog)"
 base_drug_name = selected_drug_name.split(' (')[0]
 
 # Construct the current single prescription line
@@ -139,12 +148,10 @@ with btn_col2:
 st.subheader("📋 Complete Patient Prescription Output:")
 
 if st.session_state["rx_basket"]:
-    # The \n handles linebreaks perfectly inside code blocks
     combined_output = "\n".join(st.session_state["rx_basket"])
     st.code(combined_output, language="text")
     st.info("💡 Pro-Tip: Click the copy icon in the top right corner of the box above to grab all lines at once!")
     
-    # Also render them cleanly on the web app below the box
     st.markdown("### Preview:")
     for line in st.session_state["rx_basket"]:
         st.write(line)
