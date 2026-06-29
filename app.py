@@ -9,7 +9,7 @@ str.write("Enter the patient's details below to calculate safe and accurate medi
 
 # --- GOOGLE SHEET CONNECTION ---
 # Replace this URL string with your actual Google Sheet CSV export link if necessary
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1Xg6X_u9-R2f2w_YshI4SgYkG4vHw1N-eC4n00F7I4U4/export?format=csv"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/19J5i22M-gV-6yZeK-Qz5pSsR9O7pAfqgycOi6papMhk/edit?usp=sharing"
 
 @str.cache_data(ttl=60) # Refreshes cache every 60 seconds to pull sheet updates
 def load_data():
